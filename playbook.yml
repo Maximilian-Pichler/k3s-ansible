@@ -1,0 +1,339 @@
+---
+- hosts: servers
+  become: yes
+  gather_facts: yes
+  tasks:
+    ## OVERCLOCK RPI
+    - name: create directories
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - /home/pi/tmp
+        - /usr/local/share/doc
+        - /home/pi/kafka
+        - /home/pi/kafka/data
+        - /home/pi/kafka/data/kafka
+        - /home/pi/kafka/data/zookeeper
+        - /home/pi/spark
+        - /home/pi/projects
+
+    ## mount external drive
+    - name: configure mount
+      lineinfile:
+        dest: /etc/fstab
+        line: "UUID=a6108b15-c172-4f2b-8708-3c48e5a9f5e0 /home/pi/projects ext4 defaults,auto,users,rw,nofail 0 0"
+
+    - name: read & check config.txt for overclock
+      shell: cat /boot/config.txt
+      register: presence
+
+    - name: add overclock if not set
+      lineinfile:
+        dest: /boot/config.txt
+        insertafter: '^#arm_freq=800'
+        line: "{{ item }}"
+      with_items:
+        - arm_freq=2000
+        - over_voltage=6
+      when: presence.stdout.find('over_voltage') == -1
+        
+    - name: reboot system
+      reboot:
+      when: presence.stdout.find('over_voltage') == -1
+
+    ## GENERAL
+    - name: update and upgrade apt packages
+      apt:
+        upgrade: 'yes'
+        update_cache: yes
+        cache_valid_time: 86400 # One day
+
+    - name: install prequisite libraries
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      with_items:
+        - build-essential
+        - make
+        - checkinstall
+        - default-jdk
+        - libatlas-base-dev
+        - libffi-dev 
+        - libzmq3-dev 
+        - libxml2-dev 
+        - libxslt-dev
+        - libjpeg-dev
+        - libssl-dev
+        - libsasl2-dev 
+        - libldap2-dev
+        - libbz2-dev 
+        - libmariadb-dev
+        - libreadline-dev
+        - liblzma-dev
+        - zlib1g-dev  
+        - python-dev
+        - python3-dev
+        - python-pexpect 
+        - python-mysqldb
+        - python-openssl
+        - python-websocket
+        - samba
+        - samba-common-bin
+        - wget
+        - curl
+
+    ## build librdkafka library from source (needed for kafka-confluent)
+    - name: read & check installed packages
+      package_facts:
+        manager: "auto"
+
+    - name: download and unzip source-code for librdkafka if not installed
+      unarchive:
+        src: http://mirrordirector.raspbian.org/raspbian/pool/main/libr/librdkafka/librdkafka_1.6.0.orig.tar.gz
+        dest: /home/pi/tmp
+        remote_src: yes
+      when: "'librdkafka' not in ansible_facts.packages"
+    
+    - name: configure librdkafka installation
+      command: ./configure
+      args:
+        chdir: "/home/pi/tmp/librdkafka-1.6.0"
+      when: "'librdkafka' not in ansible_facts.packages"
+
+    - name: build librdkafka from source
+      command: make
+      args:
+        chdir: "/home/pi/tmp/librdkafka-1.6.0"
+      when: 
+        - "'librdkafka' not in ansible_facts.packages"
+
+    - name: install librdkafka
+      become: yes
+      command: "checkinstall -y"
+      args:
+        chdir: "/home/pi/tmp/librdkafka-1.6.0"
+      when: "'librdkafka' not in ansible_facts.packages"
+
+    - name: remove build directory
+      file:
+        path: "/home/pi/tmp/librdkafka_1.6.0"
+        state: absent
+      when: "'librdkafka' not in ansible_facts.packages"
+
+    - name: remove source-code
+      file:
+        path: "/home/pi/tmp/librdkafka_1.6.0.orig.tar.gz"
+        state: absent
+      when: "'librdkafka' not in ansible_facts.packages"
+
+    ## SAMBA
+    - name: configure samba
+      lineinfile:
+        dest: /etc/samba/smb.conf
+        line: "{{ item }}"
+      with_items:
+        - '[projects]'
+        - 'path = /home/pi/projects'
+        - 'writeable=Yes'
+        - 'create mask=0777'
+        - 'directory mask=0777'
+        - 'public=no'
+    
+    - name: create samba user
+      expect:
+        command: 'smbpasswd -a pi'
+        responses:
+            'New SMB password': 'abcd'
+            'Retype new SMB password': 'abcd'
+        echo: true
+      no_log: false
+
+    - name: restart samba
+      command: 'systemctl restart smbd'
+
+    # DEVELOPMENT SETUP
+    ## BASE SETUP
+    - name: check if base-environment folder is present
+      stat: path=/home/pi/base/
+      register: base_env
+
+    - name: Install dev_packages
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      with_items:
+        - python-pip 
+        - python3-pip
+        - git
+        - virtualenv
+        - mariadb-server
+      when: base_env.stat.exists == False
+
+    ## VIRTUAL ENVIRONMENT SETUP
+    - name: Copy requirements.txt
+      template: 
+        src: requirements.txt
+        dest: /tmp/requirements.txt
+        backup: yes
+      when: base_env.stat.exists == False
+
+    - name: Create Python virtual env and install requirements.txt
+      pip:
+        requirements: /tmp/requirements.txt
+        virtualenv: /home/pi/base # <--- path for environment
+        virtualenv_command: virtualenv
+        virtualenv_site_packages: no 
+        virtualenv_python: /usr/bin/python3
+      when: base_env.stat.exists == False
+
+    - name: Remove requirements.txt
+      file:
+        path: "/tmp/requirements.txt"
+        state: absent
+      when: base_env.stat.exists == False
+
+    - name: configure auto-activate
+      lineinfile:
+        dest: /home/pi/.bashrc
+        line: "source /home/pi/base/bin/activate"
+
+    ## JUPYTER SETUP
+    - name: Copy the jupyter.service file
+      template: 
+        src: jupyter.txt
+        dest: /etc/systemd/system/jupyter.service
+        backup: no
+
+    - name: Restart jupyter and enable service at startup
+      systemd:
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+        name: jupyter
+
+    ## MARIA DB SETUP
+    - name: install pexpect
+      command: /usr/bin/pip3 install pexpect
+
+    - name: Case insensitive password string match
+      expect:
+        command: mysql_secure_installation
+        responses:
+            'Enter current password for root \(enter for none\)': '\n'
+            'Set root password\? \[Y/n\]': 'n'
+            'Change the root password\? \[Y/n\]': 'n'
+            'Remove anonymous users\? \[Y/n\]': 'n'
+            'Disallow root login remotely\? \[Y/n\]': 'n'
+            'Remove test database and access to it\? \[Y/n\]': 'n'
+            'Reload privilege tables now\? \[Y/n\]': 'y'
+        echo: true
+      no_log: false
+      
+
+    - name: create mariaDB user pi
+      mysql_user:
+        name: 'pi'
+        host: '%'
+        password: "abcd"
+        priv: '*.*:ALL'
+        state: present
+
+    - name: enable remote login
+      lineinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        regexp: '^bind-address'
+        line: '#bind-address = 127.0.0.1'
+      
+
+    ## KAFKA
+    - name: check if kafka folder is present
+      stat: path=/home/pi/kafka/bin
+      register: kafka
+
+    - name: Download and unzip Kafka if not present
+      unarchive:
+        src: https://apachemirror.sg.wuchna.com/kafka/2.8.0/kafka_2.12-2.8.0.tgz  
+        dest: /home/pi/kafka
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+      when: kafka.stat.exists == False
+
+    - name: edit zookeeper config dataDir
+      lineinfile:
+        path: /home/pi/kafka/config/zookeeper.properties
+        regexp: '^dataDir='
+        line: dataDir=/home/pi/kafka/data/zookeeper
+
+    - name: edit server config listeners
+      lineinfile:
+        path: /home/pi/kafka/config/server.properties
+        regexp: '^listeners='
+        line: listeners=PLAINTEXT://127.0.0.1:9092
+
+    - name: edit server config log.dirs
+      lineinfile:
+        path: /home/pi/kafka/config/server.properties
+        regexp: '^log.dirs='
+        line: log.dirs=/home/pi/kafka/data/kafka
+
+
+    - name: Copy the zookeeper.service file
+      template: 
+        src: zookeeper.txt
+        dest: /etc/systemd/system/zookeeper.service
+        backup: no
+
+    - name: Restart zookeeper and enable service at startup
+      systemd:
+        state: started
+        enabled: yes
+        daemon_reload: yes
+        name: zookeeper
+
+    - name: Copy the kafka.service file
+      template: 
+        src: kafka.txt
+        dest: /etc/systemd/system/kafka.service
+        backup: no
+
+    - name: Restart kafka and enable service at startup
+      systemd:
+        state: started
+        enabled: yes
+        daemon_reload: yes
+        name: kafka
+
+    ## SPARK
+
+    - name: check if spark folder is present
+      stat: path=/home/pi/spark/bin
+      register: spark
+
+    - name: Download and unzip spark if not present
+      unarchive:
+        src: https://ftp.cixug.es/apache/spark/spark-3.1.1/spark-3.1.1-bin-hadoop3.2.tgz
+        dest: /home/pi/spark
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+      when: spark.stat.exists == False
+
+    - name: Copy the jupyter kernel.json file
+      template: 
+        src: kernel.json
+        dest: /home/pi/base/share/jupyter/kernels/python3/kernel.json
+        backup: yes
+
+    ## set pi as owner for home/pi
+    - name: set pi as owner
+      file: 
+        dest: /home/pi
+        owner: pi 
+        group: pi 
+        recurse: yes
+
+    ## REBOOT
+    - name: Unconditionally reboot the machine with all defaults
+      reboot:

@@ -1,0 +1,15 @@
+[Unit]
+Description=Jupyter
+After=syslog.target network.target
+
+[Service]
+User=pi
+Environment="PATH=/home/pi/base/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:"
+WorkDirectory=/home/pi/
+ExecStart=/home/pi/base/bin/jupyter lab --ip 192.168.1.210 --port=8881 --NotebookApp.token=abcd --notebook-dir /home/pi/projects
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
