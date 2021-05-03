@@ -1,15 +1,12 @@
 [Unit]
-Description=Jupyter
+Description=Superset
 After=syslog.target network.target
 
 [Service]
+Restart=always
 User=
-Environment=
-WorkDirectory=
+WorkingDirectory=
 ExecStart=
-
-Restart=on-failure
-RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
