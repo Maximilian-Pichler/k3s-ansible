@@ -5,6 +5,7 @@
     user: "{{ ansible_user }}"
     home_dir: "/home/{{ user }}"
   become: yes
+  
   tasks:
     
     # SET UP DIRECTORIES #
@@ -65,18 +66,18 @@
         - python3-dev
         - libmariadb3
         - libmariadb-dev
-        - mariadb-server
-        - python3-pip
-        - git
-        - virtualenv
+        - libsqlite3-dev
         - libsasl2-dev 
         - libldap2-dev
+        - mariadb-server
+        - python3-pip
         #- python-pexpect # not available on ubuntu?
         #- python-mysqldb # not available on ubuntu?
         #- python-openssl # not available on ubuntu?
         #- python-websocket # not available on ubuntu?
         - sqlite3 
-        - libsqlite3-dev
+        - git
+        - virtualenv
         - samba
         - samba-common-bin
         - wget
@@ -456,49 +457,8 @@
       loop:
         - setuptools
         - mysqlclient
+        - PyJWT
         - apache-superset
-  
-
-    #- name: upgrade pip
-    #  command: "{{ home_dir }}/archiconda3/envs/superset/bin/pip install --upgrade pip"
-
-    #- name: install superset
-    #  command: "{{ home_dir }}/archiconda3/envs/superset/bin/pip install apache-superset"
-
-    #- name: install MySQL Connector
-    #  command: "{{ home_dir }}/archiconda3/envs/superset/bin/pip install mysqlclient"
-
-    ## Configure SUPERSET
-    #- name: create superset admin
-    #  expect:
-    #    command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset fab create-admin --username admin --firstname maximilian \
-    #        --lastname pichler  --email admin@ubuntu.local --password abcd"
-    #    responses:
-    #        'Username': 'admin'
-    #        'first name': 'admin'
-    #        'last name': 'admin'
-    #        'Email': 'admin@{{ user }}.local'
-    #        'Password': abcd
-    #        'confirmation': abcd
-    #    timeout: 36000
-    #  environment:
-    #    FLASK_APP: 'superset'
-
-      
-    #- name: create superset user
-    #  expect:
-    #    command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset fab create-user"
-    #    responses:
-    #        'Role': 'Admin'
-    #        'Username': '{{ user }}'
-    #        'first name': '{{ user }}'
-    #        'last name': '{{ user }}'
-    #        'Email': '{{ user }}@{{ user }}.local'
-    #        'Password': abcd
-    #        'confirmation': abcd
-    #    timeout: 36000
-    #  environment:
-    #    FLASK_APP: 'superset'
 
     - name: upgrade superset db
       command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset db upgrade"
@@ -515,12 +475,6 @@
       command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset init"
       environment:
         FLASK_APP: "superset"
-
-    #- name: create superset user
-    #  command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset fab create-permissions"
-    #  environment:
-    #    FLASK_APP: "superset"
-      
 
     ## Configure superset service
     - name: Copy the superset.service file
