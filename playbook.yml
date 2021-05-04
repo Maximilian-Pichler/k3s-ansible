@@ -460,21 +460,20 @@
         - PyJWT
         - apache-superset
 
+    ## SETUP SUPERSET
     - name: upgrade superset db
       command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset db upgrade"
-      environment:
-        FLASK_APP: "superset"
 
     - name: create superset user
       command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset fab create-admin --username admin --firstname Maximilian \
             --lastname Pichler --email {{ user }}@{{ user }}.com --password abcd"
       environment:
-        FLASK_APP: "superset"
+        FLASK_APP: superset
 
     - name: initialize superset
       command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset init"
       environment:
-        FLASK_APP: "superset"
+        FLASK_APP: superset
 
     ## Configure superset service
     - name: Copy the superset.service file
@@ -507,7 +506,6 @@
         enabled: yes
         daemon_reload: yes
         name: superset
-
 
     # SET PERMISSIONS #
     ###################################################################################################################  
