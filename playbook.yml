@@ -461,19 +461,16 @@
         - apache-superset
 
     ## SETUP SUPERSET
-    - name: upgrade superset db
-      command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset db upgrade"
-
-    - name: create superset user
-      command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset fab create-admin --username admin --firstname Maximilian \
-            --lastname Pichler --email {{ user }}@{{ user }}.com --password abcd"
-      environment:
-        FLASK_APP: superset
-
-    - name: initialize superset
-      command: "{{ home_dir }}/archiconda3/envs/superset/bin/superset init"
-      environment:
-        FLASK_APP: superset
+    - name: setup superset
+      become: yes
+      become_user: '{{ user }}'
+      shell: "source {{ home_dir }}/archiconda3/bin/activate superset && {{ item }}"
+      args:
+        executable: /bin/bash
+      loop: 
+        - "superset db upgrade"
+        - "export FLASK_APP=superset && superset fab create-admin --username admin --firstname Maximilian --lastname Pichler --email {{ user }}@{{ user }}.com --password abcd"
+        - "export FLASK_APP=superset && superset init"
 
     ## Configure superset service
     - name: Copy the superset.service file
@@ -493,6 +490,12 @@
         path: "/etc/systemd/system/superset.service"
         regexp: 'WorkingDirectory\='
         line: 'WorkingDirectory={{ home_dir }}'
+
+    - name: set PATH
+      lineinfile:
+        path: "/etc/systemd/system/superset.service"
+        regexp: '^Environment\='
+        line: 'Environment="PATH={{ ansible_env.PATH }}:{{ home_dir }}/archiconda3/envs/superset/bin"'
 
     - name: set superset executable
       lineinfile:
