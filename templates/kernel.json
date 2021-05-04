@@ -8,5 +8,5 @@
  ],
  "display_name": "Python 3 Spark",
  "language": "python",
- "env": {"SPARK_HOME":"/home/pi/spark"}
+ "env": {"SPARK_HOME":""}
 }

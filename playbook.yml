@@ -1,21 +1,23 @@
 ---
+
 - hosts: servers
   gather_facts: yes
-  vars:
-    user: "{{ ansible_user }}"
-    home_dir: "/home/{{ user }}"
   become: yes
-  
+
+  vars:
+    home_dir: "/home/{{ ansible_user }}"
+
   tasks:
     
+
     # SET UP DIRECTORIES #
     ###################################################################################################################
     - name: create directories
       file:
         path: "{{ item }}"
         state: directory
-        owner: "{{ user }}"
-        group: "{{ user }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
       loop:
         - /usr/local/share/doc
         - "{{ home_dir }}/tmp"
@@ -29,7 +31,9 @@
     - name: mount external drive
       lineinfile:
         dest: /etc/fstab
-        line: "UUID=a6108b15-c172-4f2b-8708-3c48e5a9f5e0 {{ home_dir }}/projects ext4 defaults,auto,users,rw,nofail 0 0"
+        line: "UUID={{ uuid }} {{ home_dir }}/projects {{ ftype }} defaults,auto,users,rw,nofail 0 0"
+      when: (uuid is defined) and (uuid|length > 0)
+
 
     # OVERCLOCK #
     ###################################################################################################################        
@@ -130,6 +134,7 @@
         state: absent
       when: "'librdkafka' not in ansible_facts.packages"
 
+
     # SET UP SAMBA #
     ###################################################################################################################  
     - name: configure samba
@@ -146,7 +151,7 @@
     
     - name: create samba user
       expect:
-        command: 'smbpasswd -a {{ user }}'
+        command: 'smbpasswd -a {{ ansible_user }}'
         responses:
             'New SMB password': 'abcd'
             'Retype new SMB password': 'abcd'
@@ -183,7 +188,9 @@
       when: conda.stat.exists == False
       no_log: false
 
-    ## STREAMING ENVIRONMENT SETUP
+
+    # STREAMING ENVIRONMENT SETUP #
+    ###################################################################################################################  
     - name: check if streaming environment is present
       stat: path="{{ home_dir }}/archiconda3/envs/streaming/bin/python"
       register: streaming
@@ -192,8 +199,8 @@
       template: 
         src: requirements.txt
         dest: "{{ home_dir }}/tmp/requirements.txt"
-        owner: '{{ user }}'
-        group: '{{ user }}'
+        owner: '{{ ansible_user }}'
+        group: '{{ ansible_user }}'
         mode: '0775'
         backup: no
 
@@ -223,6 +230,7 @@
         dest: "{{ home_dir }}/.bashrc"
         line: ". {{ home_dir }}/archiconda3/etc/profile.d/conda.sh"
 
+
     ### CONFIGURE JUPYTER SERVICE
     - name: Copy the jupyter.service file
       template: 
@@ -234,7 +242,7 @@
       lineinfile:
         path: "/etc/systemd/system/jupyter.service"
         regexp: '^User\='
-        line: 'User={{ user }}'
+        line: 'User={{ ansible_user }}'
 
     - name: set PATH
       lineinfile:
@@ -261,7 +269,8 @@
         daemon_reload: yes
         name: jupyter
 
-    ## MARIA-DB SETUP
+
+    ## SETUP MARIA-DB
     - name: install PyMySQL
       command: /usr/bin/pip3 install PyMySQL
 
@@ -283,7 +292,7 @@
     - name: create mariaDB user
       mysql_user:
         login_unix_socket: /var/run/mysqld/mysqld.sock
-        name: '{{ user }}'
+        name: '{{ ansible_user }}'
         host: '%'
         password: "abcd"
         priv: '*.*:ALL'
@@ -295,7 +304,8 @@
         regexp: '^bind-address'
         line: '#bind-address = 127.0.0.1'
       
-    ## KAFKA
+
+    ## SETUP KAFKA
     - name: check if kafka folder is present
       stat: path="{{ home_dir }}/kafka/bin"
       register: kafka
@@ -337,7 +347,7 @@
       lineinfile:
         path: "/etc/systemd/system/zookeeper.service"
         regexp: '^User\='
-        line: 'User={{ user }}'
+        line: 'User={{ ansible_user }}'
 
     - name: set zookeeper executable
       lineinfile:
@@ -369,7 +379,7 @@
       lineinfile:
         path: "/etc/systemd/system/kafka.service"
         regexp: '^User\='
-        line: 'User={{ user }}'
+        line: 'User={{ ansible_user }}'
 
     - name: set kafka executable
       lineinfile:
@@ -412,10 +422,10 @@
     - name: set spark_home
       lineinfile:
         path: "{{ home_dir }}/archiconda3/envs/streaming/share/jupyter/kernels/python3/kernel.json"
-        regexp: '^ "env"\: \{"SPARK_HOME"\:"\/home\/pi\/spark"\}'
+        regexp: '^ "env"\: \{"SPARK_HOME"\:""\}'
         line: ' "env": {"SPARK_HOME":"{{ home_dir }}/spark"}'
 
-    ## SUPERSET
+    ## INSTALL SUPERSET
     - name: check if superset environment is present
       stat: path={{ home_dir }}/archiconda3/envs/superset/bin/python
       register: superset
@@ -460,19 +470,19 @@
         - PyJWT
         - apache-superset
 
-    ## SETUP SUPERSET
+    ### SETUP SUPERSET USERS
     - name: setup superset
       become: yes
-      become_user: '{{ user }}'
+      become_user: '{{ ansible_user }}'
       shell: "source {{ home_dir }}/archiconda3/bin/activate superset && {{ item }}"
       args:
         executable: /bin/bash
       loop: 
         - "superset db upgrade"
-        - "export FLASK_APP=superset && superset fab create-admin --username admin --firstname Maximilian --lastname Pichler --email {{ user }}@{{ user }}.com --password abcd"
+        - "export FLASK_APP=superset && superset fab create-admin --username {{ ansible_user }} --firstname Maximilian --lastname Pichler --email {{ ansible_user }}@{{ ansible_user }}.com --password abcd"
         - "export FLASK_APP=superset && superset init"
 
-    ## Configure superset service
+    ## CONFIGURE SUPERSET SERVICE
     - name: Copy the superset.service file
       template: 
         src: superset.txt
@@ -483,7 +493,7 @@
       lineinfile:
         path: "/etc/systemd/system/superset.service"
         regexp: '^User\='
-        line: 'User={{ user }}'
+        line: 'User={{ ansible_user }}'
 
     - name: set superset WorkingDirectory
       lineinfile:
@@ -512,11 +522,11 @@
 
     # SET PERMISSIONS #
     ###################################################################################################################  
-    - name: set "{{ user }}" as owner
+    - name: set "{{ ansible_user }}" as owner
       file: 
         dest: "{{ home_dir }}"
-        owner: "{{ user }}" 
-        group: "{{ user }}" 
+        owner: "{{ ansible_user }}" 
+        group: "{{ ansible_user }}" 
         recurse: yes
       notify: reboot
 
